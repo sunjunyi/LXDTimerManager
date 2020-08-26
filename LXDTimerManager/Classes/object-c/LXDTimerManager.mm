@@ -9,6 +9,7 @@
 #import "LXDTimerManager.h"
 #import "LXDReceiverHashmap.h"
 #import <UIKit/UIKit.h>
+#import <sys/sysctl.h>
 
 using namespace std;
 
@@ -25,7 +26,7 @@ using namespace std;
 @property (nonatomic, strong) dispatch_source_t timer;
 @property (nonatomic, strong) dispatch_semaphore_t lock;
 @property (nonatomic, strong) dispatch_queue_t timerQueue;
-@property (nonatomic, strong) NSDate *enterBackgroundTime;
+@property (nonatomic, assign) NSTimeInterval enterBackgroundTime;
 
 @property (nonatomic, assign) LXDReceiverHashmap *receives;
 
@@ -90,10 +91,13 @@ using namespace std;
 }
 
 
+
+
+
 #pragma mark - Notification
 - (void)applicationDidBecameActive: (NSNotification *)notif {
     if (self.enterBackgroundTime && self.timer) {
-        long delay = [[NSDate date] timeIntervalSinceDate: self.enterBackgroundTime];
+        long delay = [self uptimeSinceLastBoot] - self.enterBackgroundTime ;
         
         dispatch_suspend(self.timer);
         [self _countDownWithInterval: delay];
@@ -102,8 +106,35 @@ using namespace std;
 }
 
 - (void)applicationDidEnterBackground: (NSNotification *)notif {
-    self.enterBackgroundTime = [NSDate date];
+    self.enterBackgroundTime = [self uptimeSinceLastBoot];
 }
+
+
+///系统当前运行了多长时间
+///因为两个参数都会受用户修改时间的影响，因此它们想减的值是不变的
+- (NSTimeInterval)uptimeSinceLastBoot {
+    //获取当前设备时间时间戳 受用户修改时间影响
+    struct timeval now;
+    struct timezone tz;
+    gettimeofday(&now, &tz);
+    
+    //获取系统上次重启的时间戳 受用户修改时间影响
+    struct timeval boottime;
+    int mib[2] = {CTL_KERN, KERN_BOOTTIME};
+    size_t size = sizeof(boottime);
+    
+    double uptime = -1;
+    if (sysctl(mib, 2, &boottime, &size, NULL, 0) != -1 && boottime.tv_sec != 0) {
+        //获取上次启动时间成功
+        //秒
+        uptime = now.tv_sec - boottime.tv_sec;
+        //微秒
+        uptime += (double)(now.tv_usec - boottime.tv_usec) / 1000000.0;
+    }
+    return uptime;
+}
+
+
 
 
 #pragma mark - Private
